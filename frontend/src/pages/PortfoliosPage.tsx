@@ -1,29 +1,47 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Wallet, ChevronRight, TrendingUp, Trash2 } from 'lucide-react';
+import { Plus, Wallet, ChevronRight, Trash2 } from 'lucide-react';
+
+interface Holding {
+  id: number;
+  ticker: string;
+  quantity: number;
+  cost_basis: number;
+}
 
 interface Portfolio {
   id: number;
   name: string;
   balance: number;
+  holdings: Holding[];
 }
 
 const PortfoliosPage: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { token } = useAuth();
 
   const fetchPortfolios = async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
     try {
       const response = await fetch('http://localhost:8000/portfolios', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
-      setPortfolios(data);
+      if (Array.isArray(data)) {
+        setPortfolios(data);
+      } else {
+        console.error('Invalid response format:', data);
+        setError('Vault connection interrupted.');
+      }
     } catch (err) {
       console.error('Failed to fetch portfolios:', err);
+      setError('Internal terminal error.');
     } finally {
       setLoading(false);
     }
@@ -64,7 +82,7 @@ const PortfoliosPage: React.FC = () => {
 
   useEffect(() => {
     fetchPortfolios();
-  }, []);
+  }, [token]);
 
   return (
     <div className="p-8">
@@ -101,7 +119,17 @@ const PortfoliosPage: React.FC = () => {
 
         {/* Portfolio List */}
         <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {loading ? (
+          {error ? (
+            <div className="col-span-full p-12 bg-red-500/10 border border-red-500/20 rounded-2xl text-center">
+              <p className="text-red-400 font-bold mb-4">{error}</p>
+              <button 
+                onClick={fetchPortfolios}
+                className="px-6 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors text-xs font-bold uppercase"
+              >
+                Reset Connection
+              </button>
+            </div>
+          ) : loading ? (
             <div className="col-span-full pt-10 text-center text-gray-500">Scanning accounts...</div>
           ) : portfolios.length === 0 ? (
             <div className="col-span-full pt-10 text-center text-gray-500">No active portfolios found. Create one to begin.</div>
@@ -120,16 +148,29 @@ const PortfoliosPage: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-white mb-2">{p.name}</h3>
-                    <div className="flex items-baseline space-x-2">
-                      <span className="text-2xl font-bold text-white">${p.balance.toLocaleString()}</span>
-                      <span className="text-xs font-bold text-emerald-500 uppercase tracking-tighter">Liquid Capital</span>
+                    <div className="flex flex-col space-y-1">
+                      <div className="flex items-baseline space-x-2">
+                        <span className="text-2xl font-bold text-white">${p.balance.toLocaleString()}</span>
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">Liquid Balance</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                        {p.holdings.length} Active {p.holdings.length === 1 ? 'Asset' : 'Assets'}
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-6 pt-6 border-t border-gray-700 flex justify-between items-center">
-                    <span className="text-xs text-gray-500 font-bold uppercase">View Performance</span>
-                    <div className="flex items-center text-emerald-400 text-xs font-bold">
-                      <TrendingUp size={14} className="mr-1" />
-                      +0.00%
+                  <div className="mt-6 pt-6 border-t border-gray-700">
+                    <div className="flex flex-wrap gap-2">
+                      {p.holdings.slice(0, 3).map(h => (
+                        <span key={h.id} className="px-2 py-1 bg-gray-900 rounded-md text-[9px] font-black text-blue-400 border border-blue-400/20">
+                          {h.ticker}: {h.quantity}
+                        </span>
+                      ))}
+                      {p.holdings.length > 3 && (
+                        <span className="text-[9px] text-gray-500 font-bold self-center">+{p.holdings.length - 3} more</span>
+                      )}
+                      {p.holdings.length === 0 && (
+                        <span className="text-[9px] text-gray-600 font-bold italic">No assets held</span>
+                      )}
                     </div>
                   </div>
                 </Link>
@@ -139,7 +180,7 @@ const PortfoliosPage: React.FC = () => {
                     e.stopPropagation();
                     deletePortfolio(p.id);
                   }}
-                  className="absolute bottom-6 right-6 p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                  className="absolute top-6 right-10 p-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all z-10"
                   title="Delete Portfolio"
                 >
                   <Trash2 size={18} />

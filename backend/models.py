@@ -27,11 +27,20 @@ class Portfolio(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     name = Column(String, default="My Portfolio")
     balance = Column(Float, default=10000.0)
-    ticker = Column(String, index=True, nullable=True)
+    
+    user = relationship("User", back_populates="portfolios")
+    holdings = relationship("Holding", back_populates="portfolio", cascade="all, delete-orphan")
+
+class Holding(Base):
+    __tablename__ = "holdings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    portfolio_id = Column(Integer, ForeignKey("portfolios.id"))
+    ticker = Column(String, index=True)
     quantity = Column(Float, default=0.0)
     cost_basis = Column(Float, default=0.0)
 
-    user = relationship("User", back_populates="portfolios")
+    portfolio = relationship("Portfolio", back_populates="holdings")
 
 class Transaction(Base):
     __tablename__ = "transactions"

@@ -10,10 +10,18 @@ interface TradeModalProps {
   onSuccess?: () => void;
 }
 
+interface Holding {
+  id: number;
+  ticker: string;
+  quantity: number;
+  cost_basis: number;
+}
+
 interface Portfolio {
   id: number;
   name: string;
   balance: number;
+  holdings: Holding[];
 }
 
 const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price, onSuccess }) => {
@@ -26,18 +34,32 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
 
   useEffect(() => {
     if (isOpen) {
+      setQuantity('1'); 
       fetchPortfolios();
     }
   }, [isOpen]);
+
+  // Reset quantity when switching between buy/sell to prevent "Insufficient shares" confusion
+  useEffect(() => {
+    setQuantity('1');
+  }, [type, ticker]);
 
   const fetchPortfolios = async () => {
     try {
       const response = await fetch('http://localhost:8000/portfolios', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await response.json();
-      setPortfolios(data);
-      if (data.length > 0) setSelectedPortfolioId(data[0].id);
+      const data: Portfolio[] = await response.json();
+      if (Array.isArray(data)) {
+        setPortfolios(data);
+        // If in sell mode, try to find a portfolio that already owns the stock
+        const holdingIndex = data.findIndex(p => p.holdings.some(h => h.ticker === ticker && h.quantity > 0));
+        if (type === 'sell' && holdingIndex !== -1) {
+          setSelectedPortfolioId(data[holdingIndex].id);
+        } else if (data.length > 0 && !selectedPortfolioId) {
+          setSelectedPortfolioId(data[0].id);
+        }
+      }
     } catch (err) {
       console.error(err);
     }
@@ -109,9 +131,15 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
                 onChange={(e) => setSelectedPortfolioId(Number(e.target.value))}
                 className="w-full bg-gray-900 border border-gray-700 rounded-2xl px-4 py-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all appearance-none cursor-pointer"
               >
-                {portfolios.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} (${p.balance.toLocaleString()})</option>
-                ))}
+                {portfolios.map(p => {
+                  const holding = p.holdings.find(h => h.ticker === ticker);
+                  const hasHolding = holding && holding.quantity > 0;
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name} (${p.balance.toLocaleString()}) {hasHolding ? `[Owns ${holding.quantity} shares]` : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -128,13 +156,26 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">Current Price</label>
-                <div className="bg-gray-900 border border-gray-700 rounded-2xl px-4 py-4 text-white font-mono text-lg flex items-center">
-                  <span className="text-gray-500 mr-1">$</span>
-                  {price.toFixed(2)}
+                <div className="bg-gray-900 border border-gray-700 rounded-2xl px-4 py-4 text-white font-mono text-lg flex items-center justify-between">
+                  <div>
+                    <span className="text-gray-500 mr-1">$</span>
+                    {price.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
+
+            {type === 'sell' && selectedPortfolioId && (
+              <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-xl">
+                <p className="text-xs text-orange-400 font-bold">
+                  Available to sell: {(() => {
+                    const p = portfolios.find(port => port.id === selectedPortfolioId);
+                    const h = p?.holdings.find(hold => hold.ticker === ticker);
+                    return h ? h.quantity : 0;
+                  })()} shares
+                </p>
+              </div>
+            )}
 
             <div className="bg-gray-900/50 p-6 rounded-2xl border border-gray-700/50 space-y-3">
               <div className="flex justify-between text-sm">

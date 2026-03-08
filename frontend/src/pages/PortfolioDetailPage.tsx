@@ -5,13 +5,18 @@ import { ArrowLeft, PlusCircle, PieChart, Activity } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import TradeModal from '../components/TradeModal';
 
+interface Holding {
+  id: number;
+  ticker: string;
+  quantity: number;
+  cost_basis: number;
+}
+
 interface Portfolio {
   id: number;
   name: string;
   balance: number;
-  ticker?: string | null;
-  quantity: number;
-  cost_basis: number;
+  holdings: Holding[];
 }
 
 const PortfolioDetailPage: React.FC = () => {
@@ -21,7 +26,9 @@ const PortfolioDetailPage: React.FC = () => {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [depositAmount, setDepositAmount] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+  const [selectedHoldingTicker, setSelectedHoldingTicker] = useState<string | null>(null);
 
   const mockChartData = [
     { time: 'M', val: 10000 }, { time: 'T', val: 10200 }, { time: 'W', val: 10100 },
@@ -29,15 +36,25 @@ const PortfolioDetailPage: React.FC = () => {
   ];
 
   const fetchPortfolio = async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
     try {
       const response = await fetch('http://localhost:8000/portfolios', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
-      const found = data.find((p: Portfolio) => p.id === Number(id));
-      setPortfolio(found || null);
+      if (Array.isArray(data)) {
+        const found = data.find((p: Portfolio) => p.id === Number(id));
+        setPortfolio(found || null);
+        if (!found) setError('Portfolio terminal unavailable.');
+      } else {
+        console.error('Invalid response format:', data);
+        setError('Vault connection interrupted.');
+      }
     } catch (err) {
       console.error(err);
+      setError('Internal terminal error.');
     } finally {
       setLoading(false);
     }
@@ -63,10 +80,32 @@ const PortfolioDetailPage: React.FC = () => {
 
   useEffect(() => {
     fetchPortfolio();
-  }, [id]);
+  }, [id, token]);
 
-  if (loading) return <div className="p-8 text-gray-500">Accessing secure nodes...</div>;
-  if (!portfolio) return <div className="p-8 text-red-500">Security Error: Portfolio terminal unavailable.</div>;
+  if (loading) return <div className="p-8 text-gray-500 font-medium">Accessing secure nodes...</div>;
+  
+  if (error || !portfolio) {
+    return (
+      <div className="p-8">
+        <button 
+          onClick={() => navigate('/portfolios')}
+          className="flex items-center space-x-2 text-gray-400 hover:text-white mb-8 transition-colors text-sm font-semibold"
+        >
+          <ArrowLeft size={16} />
+          <span>Back to Vault</span>
+        </button>
+        <div className="p-12 bg-red-500/10 border border-red-500/20 rounded-3xl text-center">
+          <p className="text-red-400 font-bold mb-4">{error || 'Security Error: Portfolio terminal unavailable.'}</p>
+          <button 
+            onClick={fetchPortfolio}
+            className="px-6 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors text-xs font-bold uppercase"
+          >
+            Reconnect Terminal
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8">
@@ -87,7 +126,7 @@ const PortfolioDetailPage: React.FC = () => {
           </div>
         </div>
         <div className="text-right">
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mb-1">Total Account Value</p>
+          <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mb-1">Liquid Balance</p>
           <p className="text-4xl font-black text-emerald-400">${portfolio.balance.toLocaleString()}</p>
         </div>
       </header>
@@ -151,22 +190,28 @@ const PortfolioDetailPage: React.FC = () => {
               <PieChart className="text-emerald-400" size={24} />
               <h3 className="text-lg font-bold">Asset Allocation</h3>
             </div>
-            {portfolio.ticker ? (
+            {portfolio.holdings.length > 0 ? (
               <div className="space-y-6">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-400">{portfolio.ticker} Holdings</span>
-                  <span className="font-bold">{portfolio.quantity} Shares</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">Avg Cost</span>
-                  <span className="text-white font-mono">${portfolio.cost_basis.toFixed(2)}</span>
-                </div>
-                <button 
-                  onClick={() => setIsTradeModalOpen(true)}
-                  className="w-full py-4 bg-gray-900 border border-gray-700 rounded-2xl text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all"
-                >
-                  Quick Trade {portfolio.ticker}
-                </button>
+                {portfolio.holdings.map(h => (
+                  <div key={h.id} className="p-4 bg-gray-900/50 rounded-2xl border border-gray-700/50 group">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-blue-400 font-black tracking-tighter text-lg">{h.ticker}</span>
+                      <span className="text-white font-bold">{h.quantity} Shares</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] mb-4">
+                      <span className="text-gray-500 uppercase font-black">Avg Cost: ${h.cost_basis.toFixed(2)}</span>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setSelectedHoldingTicker(h.ticker);
+                        setIsTradeModalOpen(true);
+                      }}
+                      className="w-full py-2 bg-gray-800 border border-gray-700 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all opacity-60 group-hover:opacity-100"
+                    >
+                      Trade {h.ticker}
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="text-center py-6">
@@ -183,11 +228,14 @@ const PortfolioDetailPage: React.FC = () => {
         </div>
       </div>
       
-      {portfolio.ticker && (
+      {selectedHoldingTicker && (
         <TradeModal 
           isOpen={isTradeModalOpen}
-          onClose={() => setIsTradeModalOpen(false)}
-          ticker={portfolio.ticker}
+          onClose={() => {
+            setIsTradeModalOpen(false);
+            setSelectedHoldingTicker(null);
+          }}
+          ticker={selectedHoldingTicker}
           price={256.00} 
           onSuccess={fetchPortfolio}
         />

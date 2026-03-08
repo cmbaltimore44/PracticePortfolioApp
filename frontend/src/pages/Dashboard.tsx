@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,6 +14,20 @@ const mockData = [
 
 const Dashboard: React.FC = () => {
   const { logout, username } = useAuth();
+  const [marketStatus, setMarketStatus] = useState<{is_open: boolean, reason: string} | null>(null);
+
+  useEffect(() => {
+    const fetchMarketStatus = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/market/status');
+        const data = await response.json();
+        setMarketStatus(data);
+      } catch (err) {
+        console.error('Failed to fetch market status:', err);
+      }
+    };
+    fetchMarketStatus();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
@@ -60,7 +74,16 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="p-4 bg-gray-900 rounded-lg border border-gray-700">
               <span className="block text-gray-500 text-xs uppercase tracking-wider mb-1">Market Status</span>
-              <span className="text-2xl font-bold text-emerald-500">OPEN</span>
+              <div className="flex items-center space-x-2">
+                <span className={`text-2xl font-bold ${marketStatus?.is_open ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {marketStatus ? (marketStatus.is_open ? 'OPEN' : 'CLOSED') : '...'}
+                </span>
+                {marketStatus && !marketStatus.is_open && (
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">
+                    ({marketStatus.reason})
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>

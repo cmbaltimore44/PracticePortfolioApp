@@ -4,6 +4,9 @@ import redis
 import os
 import httpx
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -81,7 +84,8 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @app.get("/portfolios")
 def get_portfolios(current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
-    return db.query(models.Portfolio).filter(models.Portfolio.user_id == current_user.id).all()
+    from sqlalchemy.orm import joinedload
+    return db.query(models.Portfolio).options(joinedload(models.Portfolio.holdings)).filter(models.Portfolio.user_id == current_user.id).all()
 
 @app.post("/portfolios")
 def create_portfolio(name: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
@@ -122,7 +126,29 @@ def deposit_funds(portfolio_id: int, amount: float, current_user: models.User = 
 def read_root():
     return {"message": "Welcome to the Investment Simulator API"}
 
-FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "sandbox_c8r831aad3i9vba1p0a0")
+from datetime import datetime, time, timezone, timedelta
+
+def get_market_status_info():
+    # NY is EDT (UTC-4) starting March 8, 2026
+    now = datetime.now(timezone.utc)
+    ny_now = now - timedelta(hours=4)
+    
+    is_weekend = ny_now.weekday() >= 5
+    market_open = time(9, 30)
+    market_close = time(16, 0)
+    current_time = ny_now.time()
+    
+    is_open = not is_weekend and (market_open <= current_time <= market_close)
+    
+    return {
+        "is_open": is_open,
+        "ny_time": ny_now.strftime("%Y-%m-%d %H:%M:%S"),
+        "reason": "Weekend" if is_weekend else ("After Hours" if not is_open else "Trading Hours")
+    }
+
+@app.get("/market/status")
+def get_market_status():
+    return get_market_status_info()
 
 def get_mock_price(ticker: str):
     import random
@@ -202,6 +228,10 @@ async def get_market_stocks(current_user: models.User = Depends(get_current_user
                 
     return results
 
+@app.get("/market/config")
+def get_market_config():
+    return {"api_key_configured": FINNHUB_API_KEY != "sandbox_c8r831aad3i9vba1p0a0"}
+
 @app.get("/market/search")
 async def search_stock(symbol: str, current_user: models.User = Depends(get_current_user)):
     symbol = symbol.upper()
@@ -277,9 +307,23 @@ def buy_stock(portfolio_id: int, ticker: str, quantity: float, db: Session = Dep
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
 
-    # Get current price (simulated for now, would ideally fetch from Finnhub)
-    # Using a helper would be better but keeping it here for simplicity
+    status = get_market_status_info()
+    if not status["is_open"]:
+        # We allow trading but add a warning or handle differently? 
+        # User requested balance changes even if closed, but complained.
+        # Let's keep it open for "simulation" purposes but maybe log the warning.
+        pass
+
     price, _, _ = get_mock_price(ticker)
+    
+    # Try to get price from cache to ensure consistency with what user saw
+    cache_key = f"market_quote_v3:{ticker}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        import json
+        stock_info = json.loads(cached_data)
+        price = stock_info.get("price", price)
+
     total_cost = price * quantity
     
     if portfolio.balance < total_cost:
@@ -287,25 +331,23 @@ def buy_stock(portfolio_id: int, ticker: str, quantity: float, db: Session = Dep
 
     portfolio.balance -= total_cost
     
-    # Update holdings (Basic implementation: assumes one ticker per portfolio for now as per schema)
-    # In a full app, we need a separate Holdings table. 
-    # But as per existing models.py, Portfolio has ticker/quantity/cost_basis directly.
-    if portfolio.ticker and portfolio.ticker != ticker:
-         # For simplicity in this demo, we'll overwrite or you'd need multiple portfolios
-         # However, the requirement said "view each portfolio individually"
-         # Let's assume for this paper trader, a Portfolio is a container for one or multiple.
-         # The current schema suggests a 1-to-1 if ticker is a column.
-         # I will stick to the schema and update the specific portfolio.
-         pass
+    holding = db.query(models.Holding).filter(
+        models.Holding.portfolio_id == portfolio_id,
+        models.Holding.ticker == ticker
+    ).first()
     
-    if portfolio.ticker == ticker:
-        new_quantity = portfolio.quantity + quantity
-        portfolio.cost_basis = ((portfolio.cost_basis * portfolio.quantity) + total_cost) / new_quantity
-        portfolio.quantity = new_quantity
+    if holding:
+        new_quantity = holding.quantity + quantity
+        holding.cost_basis = ((holding.cost_basis * holding.quantity) + total_cost) / new_quantity
+        holding.quantity = new_quantity
     else:
-        portfolio.ticker = ticker
-        portfolio.quantity = quantity
-        portfolio.cost_basis = price
+        new_holding = models.Holding(
+            portfolio_id=portfolio_id,
+            ticker=ticker,
+            quantity=quantity,
+            cost_basis=price
+        )
+        db.add(new_holding)
 
     transaction = models.Transaction(
         user_id=current_user.id,
@@ -316,26 +358,42 @@ def buy_stock(portfolio_id: int, ticker: str, quantity: float, db: Session = Dep
     )
     db.add(transaction)
     db.commit()
+    db.refresh(portfolio)
     return {"message": "Purchase successful", "portfolio": portfolio}
 
 @app.post("/trade/sell")
 def sell_stock(portfolio_id: int, ticker: str, quantity: float, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
     portfolio = db.query(models.Portfolio).filter(
         models.Portfolio.id == portfolio_id,
-        models.Portfolio.user_id == current_user.id,
-        models.Portfolio.ticker == ticker
+        models.Portfolio.user_id == current_user.id
     ).first()
     
-    if not portfolio or portfolio.quantity < quantity:
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+
+    holding = db.query(models.Holding).filter(
+        models.Holding.portfolio_id == portfolio_id,
+        models.Holding.ticker == ticker
+    ).first()
+    
+    if not holding or holding.quantity < quantity:
         raise HTTPException(status_code=400, detail="Insufficient shares")
 
     price, _, _ = get_mock_price(ticker)
+
+    # Try to get price from cache to ensure consistency with what user saw
+    cache_key = f"market_quote_v3:{ticker}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        import json
+        stock_info = json.loads(cached_data)
+        price = stock_info.get("price", price)
+
     portfolio.balance += price * quantity
-    portfolio.quantity -= quantity
+    holding.quantity -= quantity
     
-    if portfolio.quantity == 0:
-        portfolio.ticker = None
-        portfolio.cost_basis = 0.0
+    if holding.quantity <= 0:
+        db.delete(holding)
 
     transaction = models.Transaction(
         user_id=current_user.id,
@@ -346,9 +404,11 @@ def sell_stock(portfolio_id: int, ticker: str, quantity: float, db: Session = De
     )
     db.add(transaction)
     db.commit()
+    db.refresh(portfolio)
     return {"message": "Sale successful", "portfolio": portfolio}
 
 @app.get("/portfolio/{user_id}")
-def get_portfolio(user_id: int, db: Session = Depends(database.get_db)):
+def get_portfolio_legacy(user_id: int, db: Session = Depends(database.get_db)):
+    # Redundant but kept for compatibility
     portfolios = db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).all()
     return portfolios
