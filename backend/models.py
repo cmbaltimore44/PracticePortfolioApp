@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 import enum
 from datetime import datetime, timezone
 
-from .database import Base
+from database import Base
 
 class TransactionType(str, enum.Enum):
     BUY = "buy"
@@ -25,7 +25,9 @@ class Portfolio(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    ticker = Column(String, index=True)
+    name = Column(String, default="My Portfolio")
+    balance = Column(Float, default=10000.0)
+    ticker = Column(String, index=True, nullable=True)
     quantity = Column(Float, default=0.0)
     cost_basis = Column(Float, default=0.0)
 
@@ -43,3 +45,12 @@ class Transaction(Base):
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="transactions")
+
+class Favorite(Base):
+    __tablename__ = "favorites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    ticker = Column(String, index=True)
+
+    user = relationship("User")
