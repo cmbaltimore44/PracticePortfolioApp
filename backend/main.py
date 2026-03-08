@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import redis
 import os
 import httpx
+import feedparser
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -152,6 +153,17 @@ def get_market_status():
 
 def get_mock_price(ticker: str):
     import random
+    from datetime import datetime
+    
+    status = get_market_status_info()
+    is_open = status["is_open"]
+    
+    # Use a deterministic seed if the market is closed to keep prices stable
+    if not is_open:
+        # Seed based on ticker and current date (NY time)
+        seed_str = f"{ticker}_{status['ny_time'][:10]}"
+        random.seed(seed_str)
+    
     base_prices = {
         "AAPL": 256.00,
         "NVDA": 800.00,
@@ -162,8 +174,18 @@ def get_mock_price(ticker: str):
         "TSLA": 175.00,
     }
     base = base_prices.get(ticker, 100.0)
-    price = round(base + random.uniform(-base*0.02, base*0.02), 2)
-    change = round(random.uniform(-base*0.01, base*0.01), 2)
+    
+    # If market is closed, we use a fixed "fluctuation" for the day
+    # If market is open, we use the default system randomness
+    if not is_open:
+        price = round(base + random.uniform(-base*0.02, base*0.02), 2)
+        change = round(random.uniform(-base*0.01, base*0.01), 2)
+        # Reset seed to avoid affecting other parts of the app
+        random.seed(None)
+    else:
+        price = round(base + random.uniform(-base*0.02, base*0.02), 2)
+        change = round(random.uniform(-base*0.01, base*0.01), 2)
+        
     percent_change = round((change/price)*100, 2)
     return price, change, percent_change
 
@@ -174,9 +196,19 @@ async def get_market_stocks(current_user: models.User = Depends(get_current_user
     Results are cached in Redis for 60 seconds.
     """
     tickers = [
-        "AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "BRK.B", "V", "JNJ",
-        "WMT", "JPM", "MA", "PG", "UNH", "HD", "BAC", "VZ", "DIS", "ADBE"
+        "AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "ADBE",
+        "JPM", "V", "MA", "BAC", "WMT", "PG", "HD", "DIS", "JNJ", "UNH",
+        "XOM", "CVX"
     ]
+    
+    categories = {
+        "Technology": ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "ADBE"],
+        "Finance": ["JPM", "V", "MA", "BAC"],
+        "Consumer": ["WMT", "PG", "HD", "DIS"],
+        "Healthcare": ["JNJ", "UNH"],
+        "Energy": ["XOM", "CVX"]
+    }
+
     results = []
     
     # Get user favorites
@@ -184,7 +216,7 @@ async def get_market_stocks(current_user: models.User = Depends(get_current_user
     fav_tickers = {f.ticker for f in favorites}
 
     for ticker in tickers:
-        cache_key = f"market_quote_v3:{ticker}"
+        cache_key = f"market_quote_v4:{ticker}"
         cached_data = redis_client.get(cache_key)
         
         if cached_data:
@@ -206,27 +238,88 @@ async def get_market_stocks(current_user: models.User = Depends(get_current_user
                         change = data.get("d", 0.0)
                         percent_change = data.get("dp", 0.0)
 
+                    # Mock volume and range for more "in-depth" market data
+                    import random
                     stock_info = {
                         "ticker": ticker,
                         "price": price,
                         "change": change,
                         "percent_change": percent_change,
+                        "volume": f"{random.randint(5, 50)}M",
+                        "high_24h": round(price * 1.02, 2),
+                        "low_24h": round(price * 0.98, 2),
+                        "category": next((k for k, v in categories.items() if ticker in v), "Other")
                     }
                     import json
                     redis_client.setex(cache_key, 60, json.dumps(stock_info))
             except Exception:
                 price, change, percent_change = get_mock_price(ticker)
+                import random
                 stock_info = {
                     "ticker": ticker, 
                     "price": price, 
                     "change": change,
-                    "percent_change": percent_change
+                    "percent_change": percent_change,
+                    "volume": f"{random.randint(5, 50)}M",
+                    "high_24h": round(price * 1.02, 2),
+                    "low_24h": round(price * 0.98, 2),
+                    "category": next((k for k, v in categories.items() if ticker in v), "Other")
                 }
         
         stock_info["is_favorite"] = ticker in fav_tickers
         results.append(stock_info)
                 
     return results
+
+@app.get("/market/categories/{category}")
+async def get_category_stocks(category: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
+    stocks = await get_market_stocks(current_user, db)
+    return [s for s in stocks if s.get("category").lower() == category.lower()]
+
+@app.get("/market/news")
+async def get_market_news():
+    """
+    Fetch live news from Yahoo Finance RSS.
+    """
+    cache_key = "market_news_live"
+    cached_news = redis_client.get(cache_key)
+    
+    if cached_news:
+        import json
+        return json.loads(cached_news)
+    
+    try:
+        # Yahoo Finance RSS Feed
+        feed_url = "https://finance.yahoo.com/news/rssindex"
+        feed = feedparser.parse(feed_url)
+        
+        news_items = []
+        for entry in feed.entries[:10]:
+            # Try to find a tag or category
+            tag = "MARKET"
+            if hasattr(entry, 'tags') and entry.tags:
+                tag = entry.tags[0].term.upper()
+            elif hasattr(entry, 'category'):
+                tag = entry.category.upper()
+                
+            news_items.append({
+                "title": entry.title,
+                "link": entry.link,
+                "summary": entry.summary if hasattr(entry, 'summary') else "",
+                "published": entry.published if hasattr(entry, 'published') else "Just now",
+                "tag": tag[:10]
+            })
+            
+        import json
+        redis_client.setex(cache_key, 300, json.dumps(news_items)) # Cache for 5 mins
+        return news_items
+    except Exception as e:
+        print(f"News fetch error: {e}")
+        return [
+            {"title": "Global markets react to latest economic data", "published": "2m ago", "tag": "MACRO"},
+            {"title": "Tech sector sees renewed interest amid AI breakthroughs", "published": "15m ago", "tag": "TECH"},
+            {"title": "Energy stocks fluctuate following supply reports", "published": "45m ago", "tag": "ENERGY"}
+        ]
 
 @app.get("/market/config")
 def get_market_config():
@@ -255,18 +348,76 @@ async def search_stock(symbol: str, current_user: models.User = Depends(get_curr
                 change = data.get("d", 0.0)
                 percent_change = data.get("dp", 0.0)
             
+            category = next((k for k, v in categories.items() if symbol in v), "Other")
             stock_info = {
                 "ticker": symbol,
                 "price": price,
                 "change": change,
                 "percent_change": percent_change,
+                "volume": f"{random.randint(5, 50)}M",
+                "high_24h": round(price * 1.02, 2),
+                "low_24h": round(price * 0.98, 2),
+                "category": category
             }
             import json
             redis_client.setex(cache_key, 60, json.dumps(stock_info))
             return stock_info
     except Exception:
         price, change, percent_change = get_mock_price(symbol)
-        return {"ticker": symbol, "price": price, "change": change, "percent_change": percent_change}
+        category = next((k for k, v in categories.items() if symbol in v), "Other")
+        return {
+            "ticker": symbol, 
+            "price": price, 
+            "change": change, 
+            "percent_change": percent_change,
+            "volume": "--",
+            "high_24h": round(price * 1.02, 2),
+            "low_24h": round(price * 0.98, 2),
+            "category": category
+        }
+
+@app.get("/market/stocks/{ticker}/details")
+async def get_stock_details(ticker: str, current_user: models.User = Depends(get_current_user)):
+    ticker = ticker.upper()
+    # In a real app, this would fetch from a company profile API
+    # We'll provide high-fidelity mock data for the Robinhood-style experience
+    descriptions = {
+        "AAPL": "Apple Inc. designs, manufactures, and markets smartphones, personal computers, tablets, wearables, and accessories worldwide. Its signature products include the iPhone, Mac, iPad, and Apple Watch.",
+        "NVDA": "NVIDIA Corporation designs, develops, and markets three-dimensional graphics processors and related software. The company offers products that provide interactive 3-room graphics for the mainstream personal computer market.",
+        "TSLA": "Tesla, Inc. designs, develops, manufactures, leases, and sells electric vehicles, and energy generation and storage systems in the United States, China, and internationally.",
+        "GOOGL": "Alphabet Inc. offers various products and platforms in the United States, Europe, the Middle East, Africa, the Asia-Pacific, Canada, and Latin America. It operates through Google Services, Google Cloud, and Other Bets segments.",
+        "MSFT": "Microsoft Corporation develops, licenses, and supports software, services, devices, and solutions worldwide. The company operates in three segments: Productivity and Business Processes, Intelligent Cloud, and More Personal Computing."
+    }
+    
+    import random
+    mkt_cap = random.uniform(100, 3000) # Billion
+    pe_ratio = random.uniform(15, 60)
+    div_yield = random.uniform(0.5, 3.5)
+    high_52 = 300.00
+    low_52 = 120.00
+    
+    categories = {
+        "Technology": ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "ADBE"],
+        "Finance": ["JPM", "V", "MA", "BAC"],
+        "Consumer": ["WMT", "PG", "HD", "DIS"],
+        "Healthcare": ["JNJ", "UNH"],
+        "Energy": ["XOM", "CVX"]
+    }
+    category = next((k for k, v in categories.items() if ticker in v), "Other")
+
+    return {
+        "ticker": ticker,
+        "category": category,
+        "description": descriptions.get(ticker, f"{ticker} is a leading entity in the global {category} sector, recognized for its strategic market position and commitment to operational excellence within the digital economy."),
+        "stats": {
+            "market_cap": f"{mkt_cap:.2f}B",
+            "pe_ratio": f"{pe_ratio:.2f}",
+            "dividend_yield": f"{div_yield:.2f}%",
+            "52_week_high": f"${high_52:.2f}",
+            "52_week_low": f"${low_52:.2f}",
+            "volume": f"{random.randint(10, 100)}M"
+        }
+    }
 
 @app.get("/favorites")
 def get_favorites(current_user: models.User = Depends(get_current_user), db: Session = Depends(database.get_db)):
@@ -314,15 +465,16 @@ def buy_stock(portfolio_id: int, ticker: str, quantity: float, db: Session = Dep
         # Let's keep it open for "simulation" purposes but maybe log the warning.
         pass
 
-    price, _, _ = get_mock_price(ticker)
-    
-    # Try to get price from cache to ensure consistency with what user saw
+    # Prioritize Finnhub data from Redis cache
     cache_key = f"market_quote_v3:{ticker}"
     cached_data = redis_client.get(cache_key)
     if cached_data:
         import json
         stock_info = json.loads(cached_data)
-        price = stock_info.get("price", price)
+        price = stock_info.get("price")
+    else:
+        # Fallback to mock price if not in cache
+        price, _, _ = get_mock_price(ticker)
 
     total_cost = price * quantity
     

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, ShieldCheck, Wallet, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface TradeModalProps {
@@ -39,7 +39,6 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
     }
   }, [isOpen]);
 
-  // Reset quantity when switching between buy/sell to prevent "Insufficient shares" confusion
   useEffect(() => {
     setQuantity('1');
   }, [type, ticker]);
@@ -52,7 +51,6 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
       const data: Portfolio[] = await response.json();
       if (Array.isArray(data)) {
         setPortfolios(data);
-        // If in sell mode, try to find a portfolio that already owns the stock
         const holdingIndex = data.findIndex(p => p.holdings.some(h => h.ticker === ticker && h.quantity > 0));
         if (type === 'sell' && holdingIndex !== -1) {
           setSelectedPortfolioId(data[holdingIndex].id);
@@ -92,115 +90,115 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
 
   if (!isOpen) return null;
 
+  const selectedPortfolio = portfolios.find(p => p.id === selectedPortfolioId);
   const total = Number(quantity) * price;
+  const newBalance = selectedPortfolio ? (type === 'buy' ? selectedPortfolio.balance - total : selectedPortfolio.balance + total) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-gray-800 w-full max-w-md rounded-3xl border border-gray-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="p-6 border-b border-gray-700 flex justify-between items-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-300">
+      <div className="rh-card w-full max-w-lg border-rh-border shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden animate-in zoom-in-95 duration-300">
+        <div className="p-8 border-b border-rh-border flex justify-between items-center bg-rh-surface/80 backdrop-blur-sm">
           <div>
-            <h3 className="text-xl font-bold text-white uppercase tracking-tight">{type} {ticker}</h3>
-            <p className="text-xs text-gray-500 font-semibold uppercase tracking-widest mt-0.5">Market Order</p>
+            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">{type} {ticker}</h3>
+            <div className="flex items-center space-x-2 mt-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-rh-green"></div>
+              <p className="text-[10px] text-rh-gray font-black uppercase tracking-widest opacity-60">Market Execution Platform</p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-xl text-gray-400 transition-colors">
+          <button onClick={onClose} className="p-3 hover:bg-white/5 rounded-2xl text-rh-gray transition-colors border border-transparent hover:border-rh-border">
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-8">
-          <div className="flex bg-gray-900 p-1 rounded-2xl mb-8">
+        <div className="p-10 space-y-10">
+          <div className="flex bg-rh-black p-1.5 rounded-2xl border border-rh-border relative">
             <button 
               onClick={() => setType('buy')}
-              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${type === 'buy' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 relative z-10 ${type === 'buy' ? 'buy-active' : 'text-rh-gray hover:text-white'}`}
             >
-              Buy
+              Acquire
             </button>
             <button 
               onClick={() => setType('sell')}
-              className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${type === 'sell' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
+              className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 relative z-10 ${type === 'sell' ? 'sell-active' : 'text-rh-gray hover:text-white'}`}
             >
-              Sell
+              Liquidate
             </button>
           </div>
 
-          <form onSubmit={handleTrade} className="space-y-6">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">Target Account</label>
-              <select 
-                value={selectedPortfolioId}
-                onChange={(e) => setSelectedPortfolioId(Number(e.target.value))}
-                className="w-full bg-gray-900 border border-gray-700 rounded-2xl px-4 py-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all appearance-none cursor-pointer"
-              >
-                {portfolios.map(p => {
-                  const holding = p.holdings.find(h => h.ticker === ticker);
-                  const hasHolding = holding && holding.quantity > 0;
-                  return (
-                    <option key={p.id} value={p.id}>
-                      {p.name} (${p.balance.toLocaleString()}) {hasHolding ? `[Owns ${holding.quantity} shares]` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+          <form onSubmit={handleTrade} className="space-y-10">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-rh-gray px-1">Source Vault</label>
+                <div className="relative">
+                  <select 
+                    value={selectedPortfolioId}
+                    onChange={(e) => setSelectedPortfolioId(Number(e.target.value))}
+                    className="w-full bg-rh-black border border-rh-border rounded-2xl px-5 py-4 text-sm text-white focus:outline-none focus:ring-1 focus:ring-rh-white/20 transition-all appearance-none cursor-pointer font-bold pr-10"
+                  >
+                    {portfolios.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Wallet className="absolute right-4 top-1/2 -translate-y-1/2 text-rh-gray opacity-40 pointer-events-none" size={16} />
+                </div>
+              </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 px-1">Quantity</label>
+              <div className="space-y-3">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-rh-gray px-1">Quantity</label>
                 <input 
                   type="number"
                   min="0"
                   step="any"
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-2xl px-4 py-4 text-white font-mono text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  className="w-full bg-rh-black border border-rh-border rounded-2xl px-5 py-4 text-white font-mono text-xl font-black focus:outline-none focus:ring-1 focus:ring-rh-white/20 transition-all"
                 />
               </div>
-              <div>
-                <div className="bg-gray-900 border border-gray-700 rounded-2xl px-4 py-4 text-white font-mono text-lg flex items-center justify-between">
-                  <div>
-                    <span className="text-gray-500 mr-1">$</span>
-                    {price.toFixed(2)}
+            </div>
+
+            <div className="bg-rh-black p-8 rounded-3xl border border-rh-border space-y-6 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-5">
+                <ShieldCheck size={80} />
+              </div>
+              
+              <div className="flex justify-between items-center group-hover:translate-x-1 transition-transform">
+                <span className="text-[10px] font-black text-rh-gray uppercase tracking-widest">Total Estimated Value</span>
+                <span className={`text-2xl font-black font-mono tracking-tighter ${type === 'buy' ? 'text-white' : 'text-rh-green'}`}>
+                  ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              <div className="pt-6 border-t border-rh-border space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-rh-gray uppercase tracking-widest">Portfolio Balance Impact</span>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-xs font-bold text-rh-gray transition-opacity group-hover:opacity-100 opacity-60">
+                      ${selectedPortfolio?.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                    <ArrowRight size={12} className="text-rh-gray" />
+                    <span className={`text-sm font-black font-mono ${newBalance < 0 ? 'text-rh-red' : 'text-white'}`}>
+                      ${newBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {type === 'sell' && selectedPortfolioId && (
-              <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-xl">
-                <p className="text-xs text-orange-400 font-bold">
-                  Available to sell: {(() => {
-                    const p = portfolios.find(port => port.id === selectedPortfolioId);
-                    const h = p?.holdings.find(hold => hold.ticker === ticker);
-                    return h ? h.quantity : 0;
-                  })()} shares
-                </p>
-              </div>
-            )}
-
-            <div className="bg-gray-900/50 p-6 rounded-2xl border border-gray-700/50 space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Estimated Value</span>
-                <span className="text-white font-bold font-mono">${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Platform Fee</span>
-                <span className="text-emerald-500 font-bold font-mono">$0.00</span>
-              </div>
-              <div className="pt-3 border-t border-gray-700 flex justify-between">
-                <span className="text-gray-300 font-bold">Total Estimate</span>
-                <span className="text-white font-black font-mono text-lg">${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-
             <button
-              disabled={loading || !selectedPortfolioId}
+              disabled={loading || !selectedPortfolioId || newBalance < 0 && type === 'buy'}
               type="submit"
-              className={`w-full py-5 rounded-2xl text-white font-black text-lg transition-all shadow-xl active:scale-95 disabled:opacity-50 ${
-                type === 'buy' ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20' : 'bg-red-600 hover:bg-red-500 shadow-red-600/20'
+              className={`w-full py-6 rounded-2xl text-rh-black font-black text-[11px] uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed ${
+                type === 'buy' ? 'bg-rh-green hover:bg-rh-green/90 shadow-rh-green/20' : 'bg-rh-red text-white hover:bg-rh-red/90 shadow-rh-red/20'
               }`}
             >
-              {loading ? 'Processing Transaction...' : `Confirm ${type.toUpperCase()}`}
+              {loading ? 'Transmitting...' : newBalance < 0 && type === 'buy' ? 'Insufficient Liquidity' : `Execute ${type} Order`}
             </button>
+            <p className="text-center text-[9px] text-rh-gray font-black uppercase tracking-widest opacity-40">
+              Institutional Grade Settlement Logic
+            </p>
           </form>
         </div>
       </div>

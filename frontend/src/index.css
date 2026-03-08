@@ -2,11 +2,77 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+:root {
+  /* Robinhood-inspired Pro Palette - Slightly Lighter for Readability */
+  --rh-black: #0c0c0c;
+  --rh-dark-gray: #121212;
+  --rh-surface: #1a1a1a;
+  --rh-green: #00C805;
+  --rh-red: #FF5000;
+  --rh-white: #FFFFFF;
+  --rh-gray: #989ba2;
+  --rh-border: #2e2e2e;
+  
+  /* Sector Colors */
+  --sector-tech: #0088FF;
+  --sector-finance: #FFD700;
+  --sector-consumer: #FF69B4;
+  --sector-healthcare: #00FFCC;
+  --sector-energy: #FFA500;
+
+  --rh-glow-green: 0 0 20px rgba(0, 200, 5, 0.15);
+  --rh-glow-red: 0 0 20px rgba(255, 80, 0, 0.15);
+  --rh-glow-blue: 0 0 20px rgba(0, 136, 255, 0.15);
+  
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: var(--rh-white);
+  background-color: var(--rh-black);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background-color: var(--rh-black);
+  color: var(--rh-white);
+}
+
+.rh-card {
+  background-color: var(--rh-surface);
+  border: 1px solid var(--rh-border);
+  border-radius: 24px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rh-card:hover {
+  background-color: #181818;
+  border-color: #333333;
+}
+
+.buy-active {
+  background-color: var(--rh-green) !important;
+  color: var(--rh-black) !important;
+  box-shadow: 0 0 20px rgba(0, 200, 5, 0.2);
+}
+
+.sell-active {
+  background-color: var(--rh-red) !important;
+  color: var(--rh-white) !important;
+  box-shadow: 0 0 20px rgba(255, 80, 0, 0.2);
+}
+
+.rh-chart-gradient {
+  background: linear-gradient(180deg, rgba(0, 200, 5, 0.15) 0%, rgba(0, 200, 5, 0) 100%);
+}
+
+.rh-chart-gradient-red {
+  background: linear-gradient(180deg, rgba(255, 80, 0, 0.15) 0%, rgba(255, 80, 0, 0) 100%);
 }

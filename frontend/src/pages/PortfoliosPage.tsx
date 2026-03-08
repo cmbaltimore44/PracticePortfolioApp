@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Wallet, ChevronRight, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Wallet, ChevronRight } from 'lucide-react';
 
 interface Holding {
   id: number;
@@ -19,177 +19,168 @@ interface Portfolio {
 
 const PortfoliosPage: React.FC = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [newPortfolioName, setNewPortfolioName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
   const { token } = useAuth();
+  const navigate = useNavigate();
 
   const fetchPortfolios = async () => {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
     try {
       const response = await fetch('http://localhost:8000/portfolios', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json();
-      if (Array.isArray(data)) {
-        setPortfolios(data);
-      } else {
-        console.error('Invalid response format:', data);
-        setError('Vault connection interrupted.');
-      }
+      setPortfolios(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch portfolios:', err);
-      setError('Internal terminal error.');
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const deletePortfolio = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this portfolio?')) return;
+  const createPortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(`http://localhost:8000/portfolios?name=${encodeURIComponent(newName)}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        setNewName('');
+        setShowCreate(false);
+        fetchPortfolios();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const deletePortfolio = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Terminate this portfolio terminal? All data will be purged.')) return;
     try {
       const response = await fetch(`http://localhost:8000/portfolios/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (response.ok) {
-        fetchPortfolios();
-      }
+      if (response.ok) fetchPortfolios();
     } catch (err) {
-      console.error('Failed to delete portfolio:', err);
-    }
-  };
-
-  const createPortfolio = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPortfolioName) return;
-
-    try {
-      const response = await fetch(`http://localhost:8000/portfolios?name=${encodeURIComponent(newPortfolioName)}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        setNewPortfolioName('');
-        fetchPortfolios();
-      }
-    } catch (err) {
-      console.error('Failed to create portfolio:', err);
+      console.error(err);
     }
   };
 
   useEffect(() => {
     fetchPortfolios();
-  }, [token]);
+  }, []);
 
   return (
-    <div className="p-8">
-      <header className="mb-10">
-        <h2 className="text-3xl font-bold text-white">Your Portfolios</h2>
-        <p className="text-gray-400 mt-1">Manage multiple investment accounts and fund allocations</p>
+    <div className="max-w-7xl mx-auto p-4 md:p-8">
+      <header className="flex justify-between items-center mb-12">
+        <div>
+          <h2 className="text-4xl font-black text-white tracking-tighter uppercase">Vaults</h2>
+          <p className="text-rh-gray mt-1 font-bold text-xs tracking-widest uppercase opacity-60">Capital Allocation Centers</p>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center space-x-2 bg-rh-green text-rh-black px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-rh-green/90 transition-all shadow-xl shadow-rh-green/20"
+        >
+          <Plus size={16} />
+          <span>New Vault</span>
+        </button>
       </header>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Create New Portfolio Card */}
-        <div className="bg-gray-800 p-8 rounded-2xl border border-gray-700 h-fit">
-          <div className="flex items-center space-x-3 mb-6">
-            <div className="p-2 bg-blue-500/10 rounded-lg">
-              <Plus className="text-blue-400" size={20} />
-            </div>
-            <h3 className="text-xl font-bold text-white">New Portfolio</h3>
-          </div>
-          <form onSubmit={createPortfolio} className="space-y-4">
-            <input
-              type="text"
-              placeholder="Portfolio Name (e.g. Retirement)"
-              value={newPortfolioName}
-              onChange={(e) => setNewPortfolioName(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            />
-            <button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-600/20"
-            >
-              Initialize Strategy
-            </button>
-          </form>
-        </div>
-
-        {/* Portfolio List */}
-        <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {error ? (
-            <div className="col-span-full p-12 bg-red-500/10 border border-red-500/20 rounded-2xl text-center">
-              <p className="text-red-400 font-bold mb-4">{error}</p>
-              <button 
-                onClick={fetchPortfolios}
-                className="px-6 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors text-xs font-bold uppercase"
-              >
-                Reset Connection
-              </button>
-            </div>
-          ) : loading ? (
-            <div className="col-span-full pt-10 text-center text-gray-500">Scanning accounts...</div>
-          ) : portfolios.length === 0 ? (
-            <div className="col-span-full pt-10 text-center text-gray-500">No active portfolios found. Create one to begin.</div>
-          ) : (
-            portfolios.map((p) => (
-              <div key={p.id} className="relative group">
-                <Link
-                  to={`/portfolios/${p.id}`}
-                  className="block bg-gray-800 p-6 rounded-2xl border border-gray-700 hover:border-emerald-500/50 transition-all"
-                >
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="p-3 bg-emerald-500/10 rounded-xl group-hover:bg-emerald-500/20 transition-colors">
-                      <Wallet className="text-emerald-400" size={24} />
-                    </div>
-                    <ChevronRight className="text-gray-600 group-hover:text-emerald-400 transform group-hover:translate-x-1 transition-all" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white mb-2">{p.name}</h3>
-                    <div className="flex flex-col space-y-1">
-                      <div className="flex items-baseline space-x-2">
-                        <span className="text-2xl font-bold text-white">${p.balance.toLocaleString()}</span>
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-tighter">Liquid Balance</span>
-                      </div>
-                      <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-                        {p.holdings.length} Active {p.holdings.length === 1 ? 'Asset' : 'Assets'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-gray-700">
-                    <div className="flex flex-wrap gap-2">
-                      {p.holdings.slice(0, 3).map(h => (
-                        <span key={h.id} className="px-2 py-1 bg-gray-900 rounded-md text-[9px] font-black text-blue-400 border border-blue-400/20">
-                          {h.ticker}: {h.quantity}
-                        </span>
-                      ))}
-                      {p.holdings.length > 3 && (
-                        <span className="text-[9px] text-gray-500 font-bold self-center">+{p.holdings.length - 3} more</span>
-                      )}
-                      {p.holdings.length === 0 && (
-                        <span className="text-[9px] text-gray-600 font-bold italic">No assets held</span>
-                      )}
-                    </div>
-                  </div>
-                </Link>
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="rh-card p-10 max-w-md w-full border-rh-green/30 shadow-2xl">
+            <h3 className="text-2xl font-black mb-6 tracking-tighter uppercase text-white">Initialize Vault</h3>
+            <form onSubmit={createPortfolio} className="space-y-6">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-rh-gray mb-2">Vault Designation</label>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="e.g., Aggressive Growth"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full bg-rh-black border border-rh-border rounded-xl px-4 py-4 text-white focus:outline-none focus:ring-1 focus:ring-rh-green/50 font-bold"
+                />
+              </div>
+              <div className="flex space-x-4">
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    deletePortfolio(p.id);
-                  }}
-                  className="absolute top-6 right-10 p-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all z-10"
-                  title="Delete Portfolio"
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="flex-1 py-4 bg-rh-surface text-white font-bold rounded-xl border border-rh-border hover:bg-white/5 transition-all text-xs uppercase tracking-widest"
+                >
+                  ABORT
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-4 bg-rh-green text-rh-black font-black rounded-xl hover:bg-rh-green/90 transition-all text-xs uppercase tracking-widest shadow-lg shadow-rh-green/10"
+                >
+                  INITIALIZE
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-rh-gray animate-pulse font-bold tracking-widest text-sm">ACCESSING SECURE STORAGE...</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {portfolios.map((p) => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/portfolios/${p.id}`)}
+              className="rh-card p-8 group cursor-pointer relative overflow-hidden transition-all hover:border-rh-green/30"
+            >
+              <div className="flex justify-between items-start mb-8">
+                <div className="bg-rh-green/10 p-3 rounded-2xl text-rh-green group-hover:scale-110 transition-transform">
+                  <Wallet size={24} />
+                </div>
+                <button
+                  onClick={(e) => deletePortfolio(p.id, e)}
+                  className="p-2 text-rh-gray hover:text-rh-red transition-colors opacity-0 group-hover:opacity-100"
                 >
                   <Trash2 size={18} />
                 </button>
               </div>
-            ))
-          )}
+              
+              <div className="space-y-1 mb-8">
+                <h3 className="text-xl font-black text-white group-hover:text-rh-green transition-colors uppercase tracking-tighter">
+                  {p.name}
+                </h3>
+                <p className="text-[10px] text-rh-gray font-black uppercase tracking-widest">Designation: V-{p.id.toString().padStart(3, '0')}</p>
+              </div>
+
+              <div className="space-y-4 mb-8">
+                <div className="flex flex-wrap gap-2">
+                  {p.holdings.slice(0, 3).map(h => (
+                    <span key={h.id} className="px-2 py-1 bg-rh-white/5 rounded-md text-[9px] font-black text-rh-green border border-rh-green/20">
+                      {h.ticker}
+                    </span>
+                  ))}
+                  {p.holdings.length > 3 && (
+                    <span className="text-[9px] text-rh-gray font-bold self-center">+{p.holdings.length - 3}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-end justify-between pt-6 border-t border-rh-border">
+                <div>
+                  <p className="text-[10px] text-rh-gray font-black uppercase tracking-widest mb-1">Liquid Capital</p>
+                  <span className="text-2xl font-bold font-mono text-white tracking-tighter">
+                    ${p.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <ChevronRight size={20} className="text-rh-gray group-hover:text-white group-hover:translate-x-1 transition-all" />
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 };
