@@ -1,0 +1,9 @@
+{
+  "source_directories": [
+    "/Users/cooperbaltimore/PracticePortfolioApp/backend"
+  ],
+  "search_path": [
+    "/Users/cooperbaltimore/PracticePortfolioApp/backend/.venv/lib/python3.9/site-packages"
+  ],
+  "python_version": "3.9.6"
+}
