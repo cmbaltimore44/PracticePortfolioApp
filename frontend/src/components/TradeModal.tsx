@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShieldCheck, Wallet, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 interface TradeModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
   const [type, setType] = useState<'buy' | 'sell'>('buy');
   const [loading, setLoading] = useState(false);
   const { token } = useAuth();
+  const { showToast } = useToast();
 
   useEffect(() => {
     if (isOpen) {
@@ -38,10 +40,6 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
       fetchPortfolios();
     }
   }, [isOpen]);
-
-  useEffect(() => {
-    setQuantity('1');
-  }, [type, ticker]);
 
   const fetchPortfolios = async () => {
     try {
@@ -51,10 +49,7 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
       const data: Portfolio[] = await response.json();
       if (Array.isArray(data)) {
         setPortfolios(data);
-        const holdingIndex = data.findIndex(p => p.holdings.some(h => h.ticker === ticker && h.quantity > 0));
-        if (type === 'sell' && holdingIndex !== -1) {
-          setSelectedPortfolioId(data[holdingIndex].id);
-        } else if (data.length > 0 && !selectedPortfolioId) {
+        if (data.length > 0 && !selectedPortfolioId) {
           setSelectedPortfolioId(data[0].id);
         }
       }
@@ -75,14 +70,15 @@ const TradeModal: React.FC<TradeModalProps> = ({ isOpen, onClose, ticker, price,
       });
       
       if (response.ok) {
+        showToast(`Order Executed: ${type === 'buy' ? 'Acquired' : 'Liquidated'} ${quantity} shares of ${ticker}`, 'success');
         onSuccess?.();
         onClose();
       } else {
         const err = await response.json();
-        alert(err.detail || 'Trade failed');
+        showToast(err.detail || 'Settlement Failure', 'error');
       }
     } catch (err) {
-      console.error(err);
+      showToast('Nexus Connection Lost', 'error');
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { ArrowLeft, TrendingUp, TrendingDown, Star, Activity, Info, Wallet, Clock, ShieldCheck, Box } from 'lucide-react';
 import { AreaChart, Area, Tooltip, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import TradeModal from '../components/TradeModal';
@@ -32,6 +33,7 @@ const StockDetailPage: React.FC = () => {
   const { ticker } = useParams();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [details, setDetails] = useState<StockDetails | null>(null);
   const [quote, setQuote] = useState<StockQuote | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,7 +105,10 @@ const StockDetailPage: React.FC = () => {
         method,
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (response.ok) setIsFavorite(!isFavorite);
+      if (response.ok) {
+        setIsFavorite(!isFavorite);
+        showToast(`${ticker?.toUpperCase()} ${isFavorite ? 'Removed from' : 'Added to'} Watchlist`, 'info');
+      }
     } catch (err) {
       console.error(err);
     }
