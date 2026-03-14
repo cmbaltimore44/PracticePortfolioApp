@@ -37,14 +37,15 @@ redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=T
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "sandbox_c8r831aad3i9vba1p0a0")
 
 MARKET_CATEGORIES = {
-    "Technology": ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "ADBE", "INTC", "AMD", "CRM", "ORCL", "NFLX", "PYPL", "QCOM", "TXN", "AVGO", "CSCO"],
-    "Finance": ["JPM", "V", "MA", "BAC", "WFC", "C", "GS", "MS", "AXP"],
-    "Consumer": ["WMT", "PG", "HD", "DIS", "KO", "PEP", "COST", "NKE", "MCD", "SBUX", "TGT"],
-    "Healthcare": ["JNJ", "UNH", "PFE", "ABBV", "MRK", "TMO", "LLY", "DHR"],
-    "Energy": ["XOM", "CVX", "COP", "SLB"],
-    "Industrial": ["CAT", "HON", "GE", "UPS", "FDX"],
-    "Real Estate": ["PLD", "AMT", "EQIX"],
-    "Utilities": ["NEE", "DUK", "SO"]
+    "Technology": ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "ADBE", "INTC", "AMD", "CRM", "ORCL", "NFLX", "PYPL", "QCOM", "TXN", "AVGO", "CSCO", "PANW", "SNOW", "PLTR", "MDB", "NET"],
+    "Finance": ["JPM", "V", "MA", "BAC", "WFC", "C", "GS", "MS", "AXP", "BLK", "SCHW", "SQ", "COIN"],
+    "Consumer": ["WMT", "PG", "HD", "DIS", "KO", "PEP", "COST", "NKE", "MCD", "SBUX", "TGT", "LULU", "TM", "RACE", "HMC"],
+    "Healthcare": ["JNJ", "UNH", "PFE", "ABBV", "MRK", "TMO", "LLY", "DHR", "GILD", "REGN", "ISRG"],
+    "Energy": ["XOM", "CVX", "COP", "SLB", "PSX", "MPC", "VLO"],
+    "Industrial": ["CAT", "HON", "GE", "UPS", "FDX", "LMT", "BA", "GD"],
+    "Real Estate": ["PLD", "AMT", "EQIX", "SPG", "DRE"],
+    "Utilities": ["NEE", "DUK", "SO", "EXC", "AEP"],
+    "Indices & ETFs": ["SPY", "QQQ", "DIA", "VOO", "VTI", "IWM", "VEA", "VWO", "ARKK", "SMH"]
 }
 
 STOCKS_LIST = [ticker for sublist in MARKET_CATEGORIES.values() for ticker in sublist]
@@ -160,10 +161,15 @@ def get_mock_price(ticker: str):
         random.seed(seed_str)
     # Stable base prices from high-fidelity source (mocked truth)
     base_prices = {
-        "AAPL": 182.50, "NVDA": 875.20, "MSFT": 415.40, "AMZN": 178.10,
-        "GOOGL": 154.30, "META": 490.15, "TSLA": 175.05, "NFLX": 612.40,
-        "AVGO": 1345.00, "COST": 728.90, "GS": 412.30, "AXP": 224.10,
-        "JPM": 188.40, "V": 282.10, "UNH": 485.20, "HD": 355.10
+        # Updated to ~March 2026 realistic levels
+        "AAPL": 210.50, "NVDA": 1150.20, "MSFT": 485.40, "AMZN": 210.10,
+        "GOOGL": 195.30, "META": 580.15, "TSLA": 220.05, "NFLX": 750.40,
+        "AVGO": 1550.00, "COST": 880.90, "GS": 490.30, "AXP": 285.10,
+        "JPM": 225.40, "V": 340.10, "UNH": 540.20, "HD": 410.10,
+        "SPY": 662.30, "QQQ": 550.50, "DIA": 440.10, "VOO": 610.30,
+        "VTI": 310.40, "IWM": 245.10, "ARKK": 55.20, "SMH": 310.30,
+        "PANW": 385.40, "SNOW": 215.20, "PLTR": 38.50, "MDB": 460.10,
+        "SQ": 95.30, "COIN": 310.10, "LULU": 520.20, "RACE": 495.40
     }
     base = base_prices.get(ticker, random.uniform(50, 200))
     
@@ -301,24 +307,148 @@ async def search_stock(symbol: str, current_user: Optional[models.User] = Depend
         return stock
     raise HTTPException(status_code=404, detail="Security data currently unavailable")
 
+@app.get("/market/stocks/{ticker}/history")
+async def get_stock_history(ticker: str, timeframe: str = "1D", current_user: Optional[models.User] = Depends(get_current_user, use_cache=False)):
+    ticker = ticker.upper()
+    if ticker not in STOCKS_LIST:
+        raise HTTPException(status_code=404, detail="Security not found")
+    
+    # Get current quote to base history on
+    price, change, pc = get_mock_price(ticker)
+    
+    points = []
+    now = datetime.now(timezone.utc)
+    
+    if timeframe == "1D":
+        # 15-minute intervals for the last 24 hours or market day
+        # For simplicity, 15-min intervals for 24h leading to now
+        count = 96 
+        interval_min = 15
+        volatility = 0.005
+    elif timeframe == "5D":
+        count = 120 # Hourly for 5 days
+        interval_min = 60
+        volatility = 0.01
+    elif timeframe == "1M":
+        count = 30 # Daily for 1 month
+        interval_min = 1440
+        volatility = 0.02
+    elif timeframe == "6M":
+        count = 180
+        interval_min = 1440
+        volatility = 0.04
+    elif timeframe == "YTD":
+        days_ytd = (now - datetime(now.year, 1, 1, tzinfo=timezone.utc)).days
+        count = max(days_ytd, 1)
+        interval_min = 1440
+        volatility = 0.05
+    elif timeframe == "1Y":
+        count = 365
+        interval_min = 1440
+        volatility = 0.08
+    elif timeframe == "5Y":
+        count = 260 # Weekly approx for 5 years
+        interval_min = 10080
+        volatility = 0.15
+    else:
+        count = 100
+        interval_min = 60
+        volatility = 0.02
+
+    # Deterministic seed based on ticker and timeframe to keep graph stable
+    random.seed(f"{ticker}_{timeframe}_{now.strftime('%Y-%m-%d')}")
+    
+    # Trend factors (approx monthly/yearly returns for mock drift)
+    # E.g., SPY is down ~3.5% this month
+    trends = {
+        "SPY": {"1M": -0.035, "6M": 0.08, "1Y": 0.15},
+        "QQQ": {"1M": -0.045, "6M": 0.12, "1Y": 0.25},
+        "NVDA": {"1M": 0.10, "6M": 0.60, "1Y": 1.20},
+    }
+    
+    current_val = price
+    ticker_trends = trends.get(ticker, {})
+    timeframe_drift_total = ticker_trends.get(timeframe, 0.02) # Default slight positive drift
+    
+    # Random drift per step to reach the target total drift roughly
+    # We walk backwards, so we subtract the drift
+    drift_per_step = (timeframe_drift_total * price) / count
+
+    for i in range(count):
+        # Walk backwards
+        ts = now - timedelta(minutes=i * interval_min)
+        
+        # 1D specific drift logic (aligning with 'change' for today)
+        step_drift = 0
+        if timeframe == "1D":
+            step_drift = -(change / count)
+        else:
+            # Use general trend drift
+            # We are walking backwards, so if the trend is +2%, we subtract a bit each step
+            step_drift = -drift_per_step
+        
+        noise = current_val * (random.uniform(-volatility, volatility) / (count**0.5))
+        current_val += step_drift + noise
+        
+        points.append({
+            "time": ts.isoformat(),
+            "price": round(max(current_val, 0.01), 2),
+            "displayTime": ts.strftime("%H:%M") if timeframe == "1D" else ts.strftime("%b %d")
+        })
+    
+    random.seed(None) # Reset seed
+    return sorted(points, key=lambda x: x["time"])
+
 @app.get("/market/stocks/{ticker}/details")
 async def get_stock_details(ticker: str, current_user: Optional[models.User] = Depends(get_current_user, use_cache=False)):
     ticker = ticker.upper()
     descriptions = {
-        "AAPL": "Apple Inc. designs, manufactures, and markets smartphones...",
-        "NVDA": "NVIDIA Corporation designs, develops, and markets...",
-        "TSLA": "Tesla, Inc. designs, develops, manufactures...",
-        "GOOGL": "Alphabet Inc. offers various products...",
-        "MSFT": "Microsoft Corporation develops, licenses..."
+        # Technology
+        "AAPL": "Apple Inc. designs, manufactures, and markets smartphones, personal computers, tablets, wearables, and accessories. Known for premium design and tight ecosystem integration, Apple's services business (iCloud, App Store) is a major growth driver alongside its iconic iPhone hardware.",
+        "NVDA": "NVIDIA Corporation is the leader in visual computing and artificial intelligence. Its graphics processing units (GPUs) are essential for high-performance gaming, data centers, and the training of modern Large Language Models (LLMs) like GPT-4.",
+        "GOOGL": "Alphabet Inc. is the parent company of Google, the dominant force in internet search and online advertising. Alphabet also oversees Google Cloud, YouTube, and its 'Other Bets' division focusing on autonomous vehicles (Waymo) and healthcare.",
+        "MSFT": "Microsoft Corporation is a software and hardware giant, powering business productivity with Office 365 and dominating the enterprise cloud market with Azure. It also has significant footprints in gaming (Xbox) and professional networking (LinkedIn).",
+        "AMZN": "Amazon.com, Inc. transformed retail via its massive e-commerce platform and powers much of the modern web through Amazon Web Services (AWS). It continues to expand into logistics, streaming media, and physical grocery retail.",
+        "TSLA": "Tesla, Inc. is a vertically integrated sustainable energy company. It designs and manufactures electric vehicles (EVs), battery energy storage systems, and solar products. Tesla is also a pioneer in autonomous driving software (FSD).",
+        "META": "Meta Platforms, Inc. operates the world's largest social network ecosystem, including Facebook, Instagram, WhatsApp, and Messenger. It is heavily investing in the 'Metaverse' and AI-driven content discovery.",
+        "PLTR": "Palantir Technologies Inc. specializes in big data analytics. Its platforms, Foundry and Gotham, enable government agencies and large corporations to integrate disparate data sources and make complex operational decisions in real-time.",
+        "SNOW": "Snowflake Inc. provides a cloud-native data platform that allows organizations to consolidate data into a single source of truth to drive meaningful business insights and complex data-driven applications.",
+        
+        # Finance
+        "JPM": "JPMorgan Chase & Co. is a global leader in financial services, offering solutions to the world's most important corporations, governments, and institutions. It operates major segments in consumer banking, investment banking, and commercial lending.",
+        "GS": "The Goldman Sachs Group, Inc. is a premier investment banking and securities firm. It provides a wide range of services including financial advisory, asset management, and trade execution to a diversified global client base.",
+        "V": "Visa Inc. is a global payments technology company. It facilitates electronic funds transfers throughout the world, most commonly through Visa-branded credit cards, debit cards, and prepaid cards.",
+        "BLK": "BlackRock, Inc. is the largest asset manager in the world. It provides investment and technology services to institutional and retail clients, including the iShares line of ETFs and the Aladdin risk management system.",
+        "COIN": "Coinbase Global, Inc. provides financial infrastructure and technology for the cryptoeconomy. It offers a primary financial account in the cryptoeconomy for consumers, and a marketplace with a pool of liquidity for institutions.",
+        
+        # Indices & ETFs
+        "SPY": "The SPDR S&P 500 ETF Trust seeks to provide investment results that, before expenses, correspond generally to the price and yield performance of the S&P 500 Index, representing the large-cap segment of the US market.",
+        "QQQ": "Invesco QQQ is an exchange-traded fund that tracks the Nasdaq-100 Index. It includes 100 of the largest non-financial companies listed on the Nasdaq Stock Market, offering heavy exposure to the technology and growth sectors.",
+        "VOO": "Vanguard S&P 500 ETF tracks the S&P 500 Index, providing low-cost exposure to 500 of the largest companies in the U.S. It is favored by long-term investors for its ultra-low expense ratio and liquidity.",
+        "VTI": "Vanguard Total Stock Market ETF tracks the CRSP US Total Market Index, providing exposure to nearly 100% of the investable U.S. equity market, including micro, small, mid, and large-cap stocks.",
+        "SMH": "VanEck Semiconductor ETF tracks the performance of the MVIS US Listed Semiconductor 25 Index, offering concentrated exposure to the companies at the heart of the global chip industry and AI hardware.",
+        "ARKK": "ARK Innovation ETF is an actively managed fund that targets companies poised to benefit from 'disruptive innovation' in areas such as genomics, automation, energy storage, and artificial intelligence.",
+        
+        # Consumer
+        "WMT": "Walmart Inc. is the world's largest retailer. It operates a massive network of hypermarkets and discount stores, focusing on 'Everyday Low Prices' and an expanding e-commerce presence to compete in the digital age.",
+        "COST": "Costco Wholesale Corporation operates an international chain of membership-only warehouses. Its business model focuses on high volume and low prices on a limited selection of brand-name and private-label products.",
+        "RACE": "Ferrari N.V. is a world-renowned luxury performance sports car manufacturer. Beyond its iconic automotive lineup, Ferrari is a symbol of engineering excellence and exclusive brand status, fueled by its success in Formula One racing.",
+        "LULU": "Lululemon Athletica Inc. is a technical athletic apparel company for yoga, running, training, and most other sweaty pursuits. It has successfully expanded from a niche yoga brand into a global leader in the athleisure market."
     }
+    
+    price, _, _ = get_mock_price(ticker)
     mkt_cap, pe_ratio, div_yield = random.uniform(100, 3000), random.uniform(15, 60), random.uniform(0.5, 3.5)
     category = next((k for k, v in MARKET_CATEGORIES.items() if ticker in v), "Other")
+    description = descriptions.get(ticker, f"{ticker} is a leading entity in the {category} sector. The company focuses on driving operational efficiency and long-term shareholder value through innovation and market-leading positions in its core segments.")
+    
     return {
         "ticker": ticker, "category": category,
-        "description": descriptions.get(ticker, f"{ticker} is a leader in the {category} sector."),
+        "description": description,
         "stats": {
             "market_cap": f"{mkt_cap:.2f}B", "pe_ratio": f"{pe_ratio:.2f}", "dividend_yield": f"{div_yield:.2f}%",
-            "52_week_high": "$300.00", "52_week_low": "$120.00", "volume": f"{random.randint(10, 100)}M"
+            "52_week_high": f"${random.uniform(price*1.1, price*1.5):.2f}", 
+            "52_week_low": f"${random.uniform(price*0.6, price*0.9):.2f}", 
+            "volume": f"{random.uniform(1, 40):.1f}M"
         }
     }
 

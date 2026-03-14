@@ -42,17 +42,18 @@ const StockDetailPage: React.FC = () => {
   const [timeframe, setTimeframe] = useState('1D');
   const [chartData, setChartData] = useState<any[]>([]);
 
-  const generateData = (tf: string, basePrice: number) => {
-    const points = tf === '1D' ? 40 : tf === '5D' ? 50 : 60;
-    let current = basePrice * (0.95 + Math.random() * 0.1);
-    return Array.from({ length: points }, (_, i) => {
-      current += (Math.random() - 0.48) * (basePrice * 0.01);
-      return {
-        time: i,
-        price: current,
-        displayTime: tf === '1D' ? `${9 + Math.floor(i / 4)}:${(i % 4) * 15}` : `Day ${i}`
-      };
-    });
+  const fetchHistory = async (tf: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/market/stocks/${ticker}/history?timeframe=${tf}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setChartData(data);
+      }
+    } catch (err) {
+      console.error('History fetch error:', err);
+    }
   };
 
   const fetchAll = async () => {
@@ -69,7 +70,6 @@ const StockDetailPage: React.FC = () => {
 
       if (quoteData && quoteData.price) {
         setQuote(quoteData);
-        setChartData(generateData('1D', quoteData.price));
       } else {
         setQuote({
           ticker: ticker?.toUpperCase() || '',
@@ -93,10 +93,10 @@ const StockDetailPage: React.FC = () => {
   }, [ticker]);
 
   useEffect(() => {
-    if (quote && quote.price > 0) {
-      setChartData(generateData(timeframe, quote.price));
+    if (ticker) {
+      fetchHistory(timeframe);
     }
-  }, [timeframe, quote]);
+  }, [timeframe, ticker]);
 
   const toggleFavorite = async () => {
     try {
@@ -185,23 +185,24 @@ const StockDetailPage: React.FC = () => {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={accentColor} stopOpacity={0.4}/>
+                      <stop offset="5%" stopColor={accentColor} stopOpacity={0.3}/>
                       <stop offset="95%" stopColor={accentColor} stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <Tooltip 
                     content={<CustomTooltip />}
-                    cursor={{ stroke: '#555', strokeWidth: 2, strokeDasharray: '6 6' }}
+                    cursor={{ stroke: accentColor, strokeWidth: 1, strokeDasharray: '4 4' }}
                   />
                   <Area 
                     type="monotone" 
                     dataKey="price" 
                     stroke={accentColor} 
-                    strokeWidth={6}
+                    strokeWidth={4}
                     fillOpacity={1} 
                     fill="url(#colorVal)" 
-                    animationDuration={1500}
-                    animationEasing="ease-in-out"
+                    animationDuration={1000}
+                    isAnimationActive={true}
+                    connectNulls
                   />
                   <XAxis dataKey="time" hide />
                   <YAxis domain={['auto', 'auto']} hide />
